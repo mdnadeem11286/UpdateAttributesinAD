@@ -1,0 +1,109 @@
+#Install-Module -Name ImportExcel -Force -SkipPublisherCheck
+# Specify your SQL Server connection details
+$server = "DBSERVERNAME"
+$instance = "InstanceName"
+$port = 3886
+$database = "DatabaseName"
+$connectionString = "Server=$server,$port\$instance;Database=$database;Integrated Security=True;Encrypt=True;"
+$existingtitle=""
+$existingDesc=""
+u
+#Exclude the null items and blanks and select columns with the names role and adlogin. You can choose your own columns and also choose the most recently updated Person ID record.
+$sqlQuery = $sqlQuery = "SELECT a.role, a.adlogin FROM [dbo].[Tablename] a WHERE a.adlogin IS NOT NULL  AND a.adlogin <> '' and a.personid=(select max(b.Serialnumber) from Tablename b where b.adlogin=a.adlogin)"
+
+try {
+    # Execute the SQL query and store the result in $sqlData using loginid and password
+    #$sqlData = Invoke-Sqlcmd -ServerInstance "$server,$port\$instance" -Database $database -Query $sqlQuery -Username $login -Password $password -ErrorAction Stop -TrustServerCertificate
+    
+	#using windows credentials
+	$sqlData = Invoke-Sqlcmd -ServerInstance "$server,$port\$instance" -Database $database -Query $sqlQuery -ErrorAction Stop -TrustServerCertificate
+    # Output the result to console
+    #$sqlData
+}
+catch {
+    Write-Host "Error: $_"
+    # Handle the error as needed
+}
+
+
+# Array to store output data
+$outputData = @()
+
+
+# ...
+
+# Iterate through each row in the SQL query results
+foreach ($row in $sqlData) {
+    # Get the UserID, Role, Description, and Title from the respective columns
+    $userID = $row.'adlogin'
+	
+    $roletrim = $row.'Role'
+	#remove extra space from the end	
+	$role=$roletrim.Trim()
+    
+    # Initialize variables for user data
+    $status = $null
+    $description = $null
+    $title = $null
+    $titleEqualsRole = $null
+    $titleUpdate = $null
+
+    try {
+            $user = Get-ADUser -Identity $userID -Properties Description, Title, Enabled -ErrorAction Stop
+
+            # Set status based on user's enabled status
+            $status = if ($user.Enabled) { "Enabled" } else { "Disabled" }
+
+            # Get user description and title
+            $title = $user.Title.Trim()
+			$existingtitle=$title
+			
+			#setting title for the userID
+			#Set-ADUser -Identity $userID -Title $role
+			if($role -eq $title)
+				{ 
+                   $titleUpdate = "No need to update Title" 
+				   $titleEqualsRole="Yes"
+				}
+				else 
+				{ 
+				  $titleUpdate = "Title needs to be updated" 
+				  $titleEqualsRole="No"
+				  #setting title for the userID
+				  #Set-ADUser -Identity $userID -Title $role
+				}
+			}
+         catch {
+            # User not found in Active Directory
+            $status = "Not Found in AD"
+			$titleEqualsRole="NA"
+			$titleUpdate="NA"
+			 $existingtitle = $null
+        }
+		
+    
+
+    # Create a custom object with the user data
+    $outputRow = [PSCustomObject]@{
+        'UserID'                 = $userID
+		'AD_Status'              = $status
+        'Role'                   = $role
+       'Title'                  = $existingtitle
+       'TitleEqualsRole'        = $titleEqualsRole
+       'Title Update'            = $titleUpdate
+    }
+
+    # Add the output row to the output data array
+    $outputData += $outputRow
+}
+
+
+# Get the current timestamp
+$timestamp = Get-Date -Format "dd-MM-yyyy hhmmss"
+
+# Specify the path to the output Excel file with timestamp
+$outputExcelFilePath = "C:\TempLIS\Testing AD Titles\Output\TitleOutputFile_$timestamp.xlsx"
+
+# Export the output data to a new Excel file
+$outputData | Export-Excel -Path $outputExcelFilePath -AutoSize
+$outputData =$null
